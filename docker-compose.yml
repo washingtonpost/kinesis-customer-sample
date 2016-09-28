@@ -1,0 +1,6 @@
+kinesiscustomersample:
+    build: .
+    environment:
+      # arn:aws:iam::397853141546:user/app.partner-kinesis-staging
+      AWS_ACCESS_KEY_ID: AKIAIZGBLF5DQOMVNMAA
+      AWS_SECRET_ACCESS_KEY: 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
