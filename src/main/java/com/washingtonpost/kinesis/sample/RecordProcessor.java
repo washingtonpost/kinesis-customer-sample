@@ -10,6 +10,8 @@ import com.amazonaws.services.kinesis.clientlibrary.types.InitializationInput;
 import com.amazonaws.services.kinesis.clientlibrary.types.ProcessRecordsInput;
 import com.amazonaws.services.kinesis.clientlibrary.types.ShutdownInput;
 import com.amazonaws.services.kinesis.clientlibrary.types.ShutdownReason;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 
@@ -26,6 +28,7 @@ import java.util.zip.GZIPInputStream;
 public class RecordProcessor implements IRecordProcessor {
 
     private static final Log LOG = LogFactory.getLog(RecordProcessor.class);
+    private final ObjectMapper mapper = new ObjectMapper();
     private InitializationInput initializationInput;
 
     // Backoff and retry settings
@@ -140,12 +143,27 @@ public class RecordProcessor implements IRecordProcessor {
      * @param record The record to be processed.
      */
     private void processSingleRecord(Record record) {
-        // TODO Add your own record processing logic here
-
         String data = null;
         try {
             // For this app, we interpret the payload as UTF-8 chars.
             data = decompress(record.getData().array());
+
+            // Parse JSON
+            JsonNode jsonNode = mapper.readValue(data, JsonNode.class);
+            switch (jsonNode.get("type").asText()) {
+                case "content-operation":
+                    LOG.info("Process content-operation");
+                    break;
+                case "image-operation":
+                    LOG.info("Process image-operation");
+                    break;
+                case "video-operation":
+                    LOG.info("Process video-operation");
+                    break;
+                default:
+                    LOG.info("Unknown type: "+jsonNode.get("type").asText());
+                    break;
+            }
 
             LOG.info(record.getSequenceNumber() + ", " + record.getPartitionKey() + ", " + data);
         } catch (NumberFormatException e) {
