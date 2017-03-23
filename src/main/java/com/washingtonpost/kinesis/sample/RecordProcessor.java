@@ -150,20 +150,8 @@ public class RecordProcessor implements IRecordProcessor {
 
             // Parse JSON
             JsonNode jsonNode = mapper.readValue(data, JsonNode.class);
-            switch (jsonNode.get("type").asText()) {
-                case "content-operation":
-                    LOG.info("Process content-operation");
-                    break;
-                case "image-operation":
-                    LOG.info("Process image-operation");
-                    break;
-                case "video-operation":
-                    LOG.info("Process video-operation");
-                    break;
-                default:
-                    LOG.info("Unknown type: "+jsonNode.get("type").asText());
-                    break;
-            }
+
+            // TODO Business Logic
 
             LOG.info(record.getSequenceNumber() + ", " + record.getPartitionKey() + ", " + data);
         } catch (NumberFormatException e) {
