@@ -12,6 +12,7 @@ import com.amazonaws.services.kinesis.clientlibrary.types.ShutdownInput;
 import com.amazonaws.services.kinesis.clientlibrary.types.ShutdownReason;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.apache.commons.lang.ArrayUtils;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 
@@ -19,7 +20,8 @@ import java.io.BufferedReader;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStreamReader;
-import java.util.List;
+import java.nio.ByteBuffer;
+import java.util.*;
 import java.util.zip.GZIPInputStream;
 
 /**
@@ -38,6 +40,142 @@ public class RecordProcessor implements IRecordProcessor {
     // Checkpoint about once a minute
     private static final long CHECKPOINT_INTERVAL_MILLIS = 60000L;
     private long nextCheckpointTimeInMillis;
+
+    // Need to keep a last seen offset for every topic-partition pair
+    private static class TopicPartitionPair {
+        public final String topic;
+        public final int partition;
+        TopicPartitionPair(String inTopic, int inPartition) {
+            topic = inTopic;
+            partition = inPartition;
+        }
+        @Override
+        public boolean equals(Object o) {
+            if (o instanceof TopicPartitionPair) {
+                TopicPartitionPair otherPair = (TopicPartitionPair)o;
+                return (topic.equals(otherPair.topic) && (partition == otherPair.partition));
+            } else {
+                return false;
+            }
+        }
+        @Override
+        public int hashCode() {
+            return Objects.hash(topic, partition);
+        }
+    }
+    Map<TopicPartitionPair, Long> lastSeenOffsets = new HashMap<TopicPartitionPair, Long>();
+
+
+    // Save the interim state when receiving multiple records in a chain
+    String lastTopic = "";
+    int lastPartition = -1;
+    long lastOffset = -1;
+    int nextChunk = 1;
+    byte[] chunkBuffer = null;
+    boolean disposeUntilNewChunk = true;
+    Record lastEndOfChain = null;
+
+
+    private static class ChunkHeader {
+        public String topic;
+        public int partition;
+        public long offset;
+        public int chunk;
+        public int totalChunks;
+    }
+
+    /**
+     * Process a Kinesis record which is one of potentially several chunks that must be
+     * reassembled into the original message.
+     * @param record the Kinesis record which needs to be unchunked
+     */
+    private void processChunkRecord(Record record) {
+
+        try {
+            // This record is a chunk.  Unwrap from the chunking protocol
+            ByteBuffer messageBytes = record.getData();
+            int headerSize = messageBytes.getInt();
+            byte[] headerBytes = new byte[headerSize];
+            messageBytes.get(headerBytes);
+            String headerString = new String(headerBytes);
+            ChunkHeader header = new ObjectMapper().readValue(headerString, ChunkHeader.class);
+            byte[] payloadBytes = new byte[messageBytes.remaining()];
+            messageBytes.get(payloadBytes);
+
+            // Run through all the different possibilities of getting expected and unexpected messages
+            if (header.chunk == 1) {
+                if ((nextChunk != 1) && (isLaterOffset(header.topic, header.partition, header.offset))) {
+                    logLossOfData();
+                }
+                // Initialize the interim state to recieve a new chain of chunks
+                chunkBuffer = payloadBytes;
+                nextChunk = 2;
+                lastTopic = header.topic;
+                lastPartition = header.partition;
+                lastOffset = header.offset;
+                disposeUntilNewChunk = false;
+
+                if (header.totalChunks == 1) {
+                    lastEndOfChain = record;
+                    processAssembledRecord(lastPartition, lastOffset, chunkBuffer);
+                    resetInternalChunkState();
+                }
+            } else if (disposeUntilNewChunk) {
+                // Silently ignore this chunk
+            } else if ((lastTopic.equals(header.topic) && (lastPartition == header.partition) && (lastOffset == header.offset))) {
+                // This is the right kafka message.  Make sure it is for the right chunk.
+                if (header.chunk == nextChunk) {
+                    chunkBuffer = ArrayUtils.addAll(chunkBuffer, payloadBytes);
+                    ++nextChunk;
+                    if (header.totalChunks == header.chunk) {
+                        lastEndOfChain = record;
+                        processAssembledRecord(lastPartition, lastOffset, chunkBuffer);
+                        resetInternalChunkState();
+                    }
+                } else if (header.chunk < nextChunk) {
+                    // duplicate.  Silently ignore.
+                } else {
+                    // We missed a chunk.
+                    logLossOfData();
+                    resetInternalChunkState();
+                    disposeUntilNewChunk = true;
+                }
+            } else {
+                // A chunk from an unexpected message was received
+                if (isLaterOffset(header.topic, header.partition, header.offset)) {
+                    logLossOfData();
+                }
+                resetInternalChunkState();
+                disposeUntilNewChunk = true;
+            }
+
+            lastSeenOffsets.put(new TopicPartitionPair(header.topic, header.partition), header.offset);
+            // TODO: Handle exceptions smartly
+            // JSONParseException
+            // IOException from JSON parse (huh?)
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+
+    private boolean isLaterOffset(String topic, int partition, long offset) {
+        TopicPartitionPair pair = new TopicPartitionPair(topic, partition);
+        Long lastOffset = lastSeenOffsets.get(pair);
+        return ((lastOffset != null) && (lastOffset < offset));
+    }
+
+    private void resetInternalChunkState() {
+        chunkBuffer = null;
+        nextChunk = 1;
+        lastTopic = "";
+        lastPartition = -1;
+        lastOffset = -1;
+    }
+
+    private void logLossOfData() {
+        LOG.warn("Interruption of message.  Only received " + (nextChunk-1) + " chunks for Message #" +
+                lastOffset + " received on topic \"" + lastTopic + "\" partition " + lastPartition + ".");
+    }
 
     @Override
     public void initialize(InitializationInput initializationInput) {
@@ -74,7 +212,9 @@ public class RecordProcessor implements IRecordProcessor {
         LOG.info("Checkpointing shard " + initializationInput.getShardId());
         for (int i = 0; i < NUM_RETRIES; i++) {
             try {
-                checkpointer.checkpoint();
+                if (lastEndOfChain != null) {
+                    checkpointer.checkpoint(lastEndOfChain);
+                }
                 break;
             } catch (ShutdownException se) {
                 // Ignore checkpoint if the processor instance has been shutdown (fail over).
@@ -115,7 +255,7 @@ public class RecordProcessor implements IRecordProcessor {
                     //
                     // Logic to process record goes here.
                     //
-                    processSingleRecord(record);
+                    processChunkRecord(record);
 
                     processedSuccessfully = true;
                     break;
@@ -137,23 +277,26 @@ public class RecordProcessor implements IRecordProcessor {
         }
     }
 
+
     /**
      * Process a single record.
      *
-     * @param record The record to be processed.
+     * @param partition the Kinesis partition this message was received on
+     * @param sequenceNum the Kafka offset this message held
+     * @param bytes The assembled payload of the original Kafka message
      */
-    private void processSingleRecord(Record record) {
+    private void processAssembledRecord(int partition, long sequenceNum, byte[] bytes) {
         String data = null;
         try {
             // For this app, we interpret the payload as UTF-8 chars.
-            data = decompress(record.getData().array());
+            data = decompress(bytes);
 
             // Parse JSON
             JsonNode jsonNode = mapper.readValue(data, JsonNode.class);
 
             // TODO Business Logic
 
-            LOG.info(record.getSequenceNumber() + ", " + record.getPartitionKey() + ", " + data);
+            LOG.info(sequenceNum + ", " + partition + ", " + data);
         } catch (NumberFormatException e) {
             LOG.info("Record does not match sample record format. Ignoring record with data; " + data);
         } catch (IOException e) {
