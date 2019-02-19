@@ -1,11 +1,12 @@
-FROM    openjdk:8-jdk
+FROM openjdk:8-jdk
 
 # Install Node.js and npm
-RUN apt-get update
-RUN apt-get install -y curl nodejs npm maven
+RUN apt-get update \
+  && apt-get install -y curl \
+  && curl -sL https://deb.nodesource.com/setup_8.x | bash - \
+  && apt-get update && apt-get install -y nodejs maven
 RUN npm install -g n
 RUN n latest
-RUN ln -s "$(which nodejs)" /usr/bin/node
 
 # Install app dependencies
 RUN mkdir /src
