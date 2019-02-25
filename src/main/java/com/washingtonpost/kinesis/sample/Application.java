@@ -20,6 +20,7 @@ public class Application {
     private final static String KINESIS_STREAM_NAME = System.getenv("KINESIS_STREAM_NAME");
     private final static String AWS_ROLE_ARN = System.getenv("AWS_ROLE_ARN");
     private final static String AWS_ROLE_SESSION_NAME = System.getenv("AWS_ROLE_SESSION_NAME");
+    private final static String AWS_REGION = System.getenv("AWS_REGION");
 
     public static void main(String[] args) throws Exception {
         String workerId = InetAddress.getLocalHost().getCanonicalHostName() + ":" + UUID.randomUUID();
@@ -30,6 +31,11 @@ public class Application {
 
         final KinesisClientLibConfiguration config = new KinesisClientLibConfiguration(APPLICATION_NAME, KINESIS_STREAM_NAME,
                 kinesisProvider, dynamoDBProvider, cloudWatchProvider, workerId);
+
+        if (AWS_REGION != null) {
+            config.withRegionName(AWS_REGION);
+        }
+
         final IRecordProcessorFactory recordProcessorFactory = new RecordProcessorFactory();
         final Worker worker = new Worker.Builder()
                 .recordProcessorFactory(recordProcessorFactory)
