@@ -1,5 +1,5 @@
 # Amazon Kinesis Cross-Account Client Node.js
-This example application uses the official [Amazon Kinesis Client Library for Node.js](https://github.com/awslabs/amazon-kinesis-client-nodejs).  We have simply added support for cross-account access.
+This example application uses the official [Amazon Kinesis Client Library for Node.js](https://github.com/awslabs/amazon-kinesis-client-nodejs) with cross-account Kinesis access.
 
 Cross-account access is when, in our case, The Washington Post has a Kinesis stream they want to share with an [ARC](http://www.arcpublishing.com) customer.  The Washington Post creates an IAM role that our customer can assume to access our Kinesis stream.
 
@@ -72,11 +72,11 @@ Get the IAM Role ARN and Kinesis stream name from The Washington Post.
 
 Use the Kinesis stream name to populate the "streamName" found in [properties/kcl.properties](properties/kcl.propertis).
 
-Use the IAM Role to populate the "AWS_ROLE_ARN" found in [docker-compose.yml](docker-compose.yml).
+Use the IAM Role to populate the second field in "AWSCredentialsProvider" found in [properties/kcl.properties](properties/kcl.propertis).
 
 Create an IAM user in your account that can assume the IAM role in The Washington Post account.
 
-After creating the IAM user attach a policy that grants access to the Securty Token Service.  Use the role ARN The Washington Post provided as the Resource.
+After creating the IAM user attach a policy that grants access to the Security Token Service.  Use the role ARN The Washington Post provided as the Resource.
 ![STSRole.png](STSRole.png)
 
 Example policy:
