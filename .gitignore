@@ -39,3 +39,6 @@ jspm_packages
 .idea
 target
 *.iml
+
+#Env Vars
+docker-compose.yml
