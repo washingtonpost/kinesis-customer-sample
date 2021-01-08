@@ -22,7 +22,7 @@ Once your account information is known, we can create two IAM Users -- one in ea
 
 In the Arc account, we'll first create an IAM role that is able to peer with the user you create in your Consuming Account. First, we'll create the policy this role needs:
 
-In the AWS console for the Consuming Account create a new IAM role.
+In the AWS console for the Arc Account create a new IAM role.
 * Navigate to IAM > Policies
 * Create a policy that can connect to the stream for this particular customer 
 
