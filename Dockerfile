@@ -1,12 +1,12 @@
 FROM openjdk:8-jdk
 
-ENV AWS_SDK_STS_VERSION=1.11.129
+ENV AWS_SDK_STS_VERSION=1.11.719
 ENV MAVEN_REPO=https://repo1.maven.org/maven2
 
 # Install Node.js and npm
 RUN apt-get update \
   && apt-get install -y curl \
-  && curl -sL https://deb.nodesource.com/setup_8.x | bash - \
+  && curl -sL https://deb.nodesource.com/setup_12.x | bash - \
   && apt-get update && apt-get install -y nodejs maven
 RUN npm install -g n
 RUN n latest
